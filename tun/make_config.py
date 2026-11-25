@@ -4,8 +4,8 @@ Reads the first non-comment line of proxy.txt (ss:// vless:// vmess:// trojan://
 and writes config.json. Run start-tun.bat, which calls this automatically.
 
 Traffic flow:
-  apps -> sing-box TUN -> socks 127.0.0.1:1080 (tor_rotate) -> tor -> socks 127.0.0.1:10810 -> proxy -> internet
-  tor_rotate's own upstream (10810) is a local socks inbound that sing-box sends straight to your proxy.
+  apps -> sing-box TUN -> socks 127.0.0.1:9050 (tor) -> socks 127.0.0.1:10810 (sing-box) -> proxy -> internet
+  Tor's upstream (10810) is a local socks inbound that sing-box sends straight to your proxy.
 """
 import base64
 import json
@@ -17,8 +17,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PROXY_FILE = os.path.join(HERE, "proxy.txt")
 CONFIG_FILE = os.path.join(HERE, "config.json")
 
-TOR_SOCKS = 1080        # tor_rotate --listen
-UPSTREAM_PORT = 10810   # tor_rotate --upstream 127.0.0.1:10810
+TOR_SOCKS = 9050        # tor SocksPort
+UPSTREAM_PORT = 10810   # tor Socks5Proxy: sing-box's local socks to your proxy
 
 
 def b64dec(s):
@@ -173,7 +173,7 @@ def build(link):
         "dns": {
             "servers": [
                 {"type": "https", "tag": "dns-remote", "server": "1.1.1.1", "detour": "tor"},
-                {"type": "https", "tag": "dns-direct", "server": "1.1.1.1", "detour": "direct"},
+                {"type": "https", "tag": "dns-direct", "server": "1.1.1.1"},
             ],
             "final": "dns-remote",
             "strategy": "prefer_ipv4",
