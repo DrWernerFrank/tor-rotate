@@ -8,6 +8,7 @@ through tor's control port and show the current exit. Settings live in
 """
 import copy
 import json
+import math
 import os
 import queue
 import re
@@ -57,6 +58,42 @@ FONT = "Segoe UI"
 MONO = "Consolas"
 STATE_COLORS = {"stopped": C["muted"], "starting": C["warn"], "stopping": C["warn"],
                 "connected": C["ok"], "failed": C["bad"]}
+
+
+def enable_dpi_awareness():
+    """Draw at real pixels. Without this Windows bitmap-stretches the window, which looks blurry."""
+    if sys.platform != "win32":
+        return 96
+    import ctypes
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except (AttributeError, OSError):
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except (AttributeError, OSError):
+            pass
+    try:
+        return ctypes.windll.user32.GetDpiForSystem()
+    except (AttributeError, OSError):
+        return 96
+
+
+SCALE = enable_dpi_awareness() / 96
+
+
+def lerp_color(a, b, t):
+    ca = [int(a[i:i + 2], 16) for i in (1, 3, 5)]
+    cb = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#%02x%02x%02x" % tuple(round(x + (y - x) * t) for x, y in zip(ca, cb))
+
+
+def lerp_num(a, b, t):
+    return a + (b - a) * t
+
+
+def ease(t):
+    return 1 - (1 - t) ** 3
+
 
 DEFAULT_SETTINGS = {
     "link": "",
@@ -236,7 +273,8 @@ def apply_theme(root):
               selectforeground=[("readonly", C["text"])])
     style.configure("TNotebook", background=C["bg"], borderwidth=0)
     style.configure("TNotebook.Tab", background=C["bg"], foreground=C["muted"],
-                    padding=(18, 9), borderwidth=0)
+                    padding=(18, 9), borderwidth=0, bordercolor=C["bg"],
+                    lightcolor=C["bg"], darkcolor=C["bg"])
     style.map("TNotebook.Tab", background=[("selected", C["card"])],
               foreground=[("selected", C["text"])])
 
@@ -279,10 +317,12 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("TorRotate")
-        self.geometry("940x700")
-        self.minsize(880, 640)
+        self.geometry(f"{round(940 * SCALE)}x{round(700 * SCALE)}")
+        self.minsize(round(880 * SCALE), round(640 * SCALE))
         self.configure(bg=C["bg"])
+        self.attributes("-alpha", 0.0)
         apply_theme(self)
+        self.style = ttk.Style(self)
         self.option_add("*TCombobox*Listbox.background", C["field"])
         self.option_add("*TCombobox*Listbox.foreground", C["text"])
         self.option_add("*TCombobox*Listbox.selectBackground", C["accent"])
@@ -301,6 +341,12 @@ class App(tk.Tk):
         self.last_exit_poll = 0.0
         self.rot_mode = "Manual"
         self.rot_interval = 300
+        self._anims = {}
+        self._btn_color = {}
+        self._pill_color = C["muted"]
+        self._core_color = C["muted"]
+        self._glow_state = "stopped"
+        self._glow_phase = 0.0
 
         self.status_var = tk.StringVar(value="Disconnected")
         self.exit_var = tk.StringVar(value="No exit yet")
@@ -317,8 +363,11 @@ class App(tk.Tk):
 
         self._build_ui()
         self._apply(load_settings())
+        self._animate_buttons(self)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.after(150, self._pump)
+        self.after(40, self._glow_tick)
+        self.fade("alpha", 350, lambda a: self.attributes("-alpha", a), 0.0, 1.0, mix=lerp_num)
         self.log(f"settings folder: {DATA}")
         for path in (TOR_EXE, SINGBOX, LYREBIRD):
             if not os.path.exists(path):
@@ -328,6 +377,10 @@ class App(tk.Tk):
     def _build_ui(self):
         header = tk.Frame(self, bg=C["bg"])
         header.pack(fill="x", padx=20, pady=(16, 8))
+        self.glow = tk.Canvas(header, width=34, height=34, bg=C["bg"], highlightthickness=0)
+        self.glow.pack(side="left", padx=(0, 10))
+        self.halo = self.glow.create_oval(2, 2, 32, 32, outline="", fill=C["bg"])
+        self.core = self.glow.create_oval(10, 10, 24, 24, outline="", fill=C["muted"])
         tk.Label(header, text="TorRotate", bg=C["bg"], fg=C["text"],
                  font=(FONT, 18, "bold")).pack(side="left")
         self.pill = tk.Label(header, textvariable=self.status_var, bg=C["muted"], fg=C["bg"],
@@ -520,6 +573,80 @@ class App(tk.Tk):
         else:
             messagebox.showerror("sing-box", (r.stderr or r.stdout).strip()[-800:] or "Config rejected.")
 
+    # ---- animation ---------------------------------------------------------
+    def fade(self, key, ms, apply, a, b, mix=lerp_color):
+        if key in self._anims:
+            self.after_cancel(self._anims.pop(key))
+        steps = max(1, ms // 16)
+
+        def step(i):
+            apply(mix(a, b, ease(min(i / steps, 1.0))))
+            if i < steps:
+                self._anims[key] = self.after(16, step, i + 1)
+            else:
+                self._anims.pop(key, None)
+        step(1)
+
+    def flash_exit(self):
+        self.fade("exit", 600, lambda c: self.style.configure("Big.TLabel", foreground=c),
+                  C["accent_hi"], C["text"])
+
+    def _set_state_visual(self, name, text):
+        self.status_var.set(text)
+        self._glow_state = name
+        self.fade("pill", 300, self._paint_pill, self._pill_color, STATE_COLORS[name])
+        self.fade("core", 300, self._paint_core, self._core_color, STATE_COLORS[name])
+
+    def _paint_pill(self, c):
+        self._pill_color = c
+        self.pill.configure(bg=c)
+
+    def _paint_core(self, c):
+        self._core_color = c
+        self.glow.itemconfigure(self.core, fill=c)
+
+    def _glow_tick(self):
+        self._glow_phase += 0.04
+        st = self._glow_state
+        busy = st in ("starting", "stopping")
+        if busy:
+            amp = 0.5 + 0.5 * math.sin(self._glow_phase * 6)
+        elif st == "connected":
+            amp = 0.25 + 0.2 * math.sin(self._glow_phase * 1.5)
+        else:
+            amp = 0.0
+        r = 7 + (1.5 * amp if busy else 0.0)
+        self.glow.itemconfigure(self.halo, fill=lerp_color(C["bg"], self._core_color, 0.45 * amp))
+        self.glow.coords(self.core, 17 - r, 17 - r, 17 + r, 17 + r)
+        self.after(40, self._glow_tick)
+
+    def _animate_buttons(self, root):
+        hover = {"TButton": (C["field"], "#2f3649"), "Accent.TButton": (C["accent"], C["accent_hi"])}
+        for w in root.winfo_children():
+            if isinstance(w, ttk.Button):
+                base_style = str(w.cget("style")) or "TButton"
+                if base_style in hover:
+                    self._hover_button(w, base_style, *hover[base_style])
+            self._animate_buttons(w)
+
+    def _hover_button(self, btn, base_style, base, hi):
+        name = f"Anim{id(btn)}.{base_style}"
+        self.style.configure(name, background=base)
+        self.style.map(name, background=[("disabled", C["card"])],
+                       foreground=[("disabled", C["muted"])])
+        btn.configure(style=name)
+        self._btn_color[name] = base
+
+        def go(target):
+            if not btn.instate(["disabled"]):
+                self.fade(name, 180, lambda c: self._paint_btn(name, c), self._btn_color[name], target)
+        btn.bind("<Enter>", lambda e: go(hi), add="+")
+        btn.bind("<Leave>", lambda e: go(base), add="+")
+
+    def _paint_btn(self, name, c):
+        self._btn_color[name] = c
+        self.style.configure(name, background=c)
+
     # ---- logging & thread-safe UI updates ---------------------------------
     def log(self, text):
         self.q.put(("log", f"[{datetime.now():%H:%M:%S}] {text}"))
@@ -545,8 +672,7 @@ class App(tk.Tk):
                 kind, val = self.q.get_nowait()
                 if kind == "state":
                     name, text = val
-                    self.status_var.set(text)
-                    self.pill.configure(bg=STATE_COLORS[name])
+                    self._set_state_visual(name, text)
                 elif kind == "log":
                     self.log_txt.configure(state="normal")
                     self.log_txt.insert("end", val + "\n")
@@ -564,14 +690,16 @@ class App(tk.Tk):
     def _show_exit(self, info):
         if info is None:
             if self.running:
-                self.exit_var.set("Building circuit…")
-                self.exit_meta_var.set(f"rotations {self.rotations}")
+                text, meta = "Building circuit…", f"rotations {self.rotations}"
             else:
-                self.exit_var.set("No exit yet")
-                self.exit_meta_var.set("Connect to route traffic through Tor")
-            return
-        self.exit_var.set(f"{info['cc']}  ·  {info['nick']}")
-        self.exit_meta_var.set(f"IP {info['ip']}     rotations {self.rotations}")
+                text, meta = "No exit yet", "Connect to route traffic through Tor"
+        else:
+            text = f"{info['cc']}  ·  {info['nick']}"
+            meta = f"IP {info['ip']}     rotations {self.rotations}"
+        self.exit_meta_var.set(meta)
+        if text != self.exit_var.get():
+            self.exit_var.set(text)
+            self.flash_exit()
 
     def _refresh_buttons(self):
         active = any(x is not None for x in (self.sb, self.tor))
@@ -589,6 +717,7 @@ class App(tk.Tk):
 
     def request_rotate(self):
         self.rotate_now = True
+        self.flash_exit()
 
     # ---- start / stop ------------------------------------------------------
     def _set_busy(self, flag):
