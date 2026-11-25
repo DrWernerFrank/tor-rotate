@@ -1,0 +1,10 @@
+# Paste ONE share link below (first line that is not a comment is used).
+# Supported: ss://  vless://  vmess://  trojan://
+# Then run start-tun.bat (as administrator) again to apply it.
+#
+# examples (replace with your own):
+# ss://BASE64(method:password)@host:port#name
+# vless://uuid@host:443?security=reality&sni=...&fp=chrome&pbk=...&sid=...&type=tcp&flow=xtls-rprx-vision#name
+# vmess://BASE64(json)
+# trojan://password@host:443?security=tls&sni=host&type=ws&path=/path#name
+

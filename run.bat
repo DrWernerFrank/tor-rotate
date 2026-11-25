@@ -5,7 +5,7 @@ tor_rotate.exe ^
   --tor .\tor\tor\tor.exe ^
   --datadir .\data ^
   --mode timer --timer 120 ^
-  --upstream 127.0.0.1:10808 ^
+  --upstream 127.0.0.1:10810 ^
   --bridges-file .\bridges.txt ^
   --geoip .\tor\geoip
 pause

@@ -13,6 +13,11 @@ sums.txt
 # bridges are machine-specific and fetched fresh from bridges.torproject.org
 bridges.txt
 
+# tun/: your proxy credentials, generated config, sing-box binaries
+tun/proxy.txt
+tun/config.json
+tun/bin/
+
 # build artifacts
 *.obj
 *.exe
