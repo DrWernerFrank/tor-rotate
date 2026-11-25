@@ -24,6 +24,7 @@ tun/config.json
 tun/bin/
 
 # build artifacts
+__pycache__/
 *.obj
 *.exe
 *.pdb
