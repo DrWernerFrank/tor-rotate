@@ -99,13 +99,21 @@ void ctrl_close(ctrl_t *c)
     c->authenticated = 0;
 }
 
+static mutex_t g_ctrl_mx;
+
+void ctrl_lock_init(void) { mutex_init(&g_ctrl_mx); }
+
 int ctrl_cmd(ctrl_t *c, const char *cmd, char *reply, int reply_max)
 {
     if (c->s == SOCK_INVALID) return -1;
     char full[2048];
     snprintf(full, sizeof full, "%s\r\n", cmd);
-    if (sock_send_all(c->s, full, (int)strlen(full)) < 0) return -1;
-    return read_reply(c, reply, reply_max);
+    mutex_lock(&g_ctrl_mx);
+    int rc = -1;
+    if (sock_send_all(c->s, full, (int)strlen(full)) >= 0)
+        rc = read_reply(c, reply, reply_max);
+    mutex_unlock(&g_ctrl_mx);
+    return rc;
 }
 
 int ctrl_newnym(ctrl_t *c)

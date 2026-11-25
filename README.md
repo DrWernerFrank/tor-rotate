@@ -40,6 +40,18 @@ tor_rotate.exe --geoip .\tor\geoip                    ; enable exit country disp
 
 Point any SOCKS5 client (browser, curl, etc.) at `127.0.0.1:1080`.
 
+## Web UI
+
+A dashboard runs alongside the console at **http://127.0.0.1:8080** (localhost
+only). It shows the current exit, stats, rotation mode/timer/batch, the built
+circuits and a live log, and has buttons for rotate, pause and the mode
+settings. Use `--web PORT` to change the port or `--no-web` to disable it.
+
+It is also available as a JSON API: `GET /api/status`, `GET /api/circuits`,
+and `POST /api/rotate|pause`, `POST /api/mode?set=manual|per|timer|off`,
+`POST /api/timer?sec=N`, `POST /api/batch?n=N`. POST requests must send the
+header `X-Tor-Rotate: 1` and the Host must be `127.0.0.1` or `localhost`.
+
 ## Bridges
 
 If Tor relays are TLS-fingerprinted and blocked on your network (stuck at

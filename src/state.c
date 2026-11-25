@@ -11,6 +11,8 @@ void state_init(void)
     g_app.rot_every_n = 1;
     g_app.timer_sec = 300;
     g_app.running = 1;
+    log_init();
+    ctrl_lock_init();
 }
 
 static int do_newnym(void)

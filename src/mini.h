@@ -17,6 +17,10 @@ typedef SOCKET sock_t;
 #  define SOCK_INVALID INVALID_SOCKET
 #  define THREAD_RET unsigned __stdcall
 #  define THREAD_HANDLE HANDLE
+typedef CRITICAL_SECTION mutex_t;
+#  define mutex_init(m)   InitializeCriticalSection(m)
+#  define mutex_lock(m)   EnterCriticalSection(m)
+#  define mutex_unlock(m) LeaveCriticalSection(m)
 #else
 #  include <sys/socket.h>
 #  include <sys/select.h>
@@ -32,6 +36,10 @@ typedef int sock_t;
 #  define THREAD_RET void *
 #  define THREAD_HANDLE pthread_t
 #  define closesocket close
+typedef pthread_mutex_t mutex_t;
+#  define mutex_init(m)   pthread_mutex_init((m), NULL)
+#  define mutex_lock(m)   pthread_mutex_lock(m)
+#  define mutex_unlock(m) pthread_mutex_unlock(m)
 #endif
 
 #include <stdio.h>
@@ -53,6 +61,7 @@ typedef struct {
     int  socks_port;          /* tor SOCKS (default 9050) */
     int  control_port;        /* tor ControlPort (default 9051) */
     int  listen_port;         /* our SOCKS5 listener (default 1080) */
+    int  web_port;            /* web UI on 127.0.0.1 (default 8080, 0 = off) */
     char upstream_proxy[256]; /* optional socks5 host:port tor dials through */
     char exit_include[256];   /* ExitNodes e.g. "{de},{nl}" (may be empty) */
     char exit_exclude[256];   /* ExcludeNodes (may be empty) */
@@ -71,6 +80,9 @@ extern config_t g_cfg;
 /* util.c */
 void log_line(const char *fmt, ...);
 void log_set_quiet(int q);
+void log_init(void);
+int  log_count(void);
+int  log_get(int idx, char *buf, int buflen);  /* idx 0 = oldest */
 long now_sec(void);
 void str_copy(char *dst, size_t n, const char *src);
 int  str_has(const char *hay, const char *needle);

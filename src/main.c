@@ -7,6 +7,7 @@
 #include "proxy.h"
 #include "worker.h"
 #include "ui.h"
+#include "web.h"
 
 static void usage(void)
 {
@@ -18,6 +19,8 @@ static void usage(void)
     "  --socks N         tor socks port        (default 9050)\n"
     "  --control N       tor control port      (default 9051)\n"
     "  --listen N        our socks5 port       (default 1080)\n"
+    "  --web N           web ui port on 127.0.0.1 (default 8080)\n"
+    "  --no-web          disable the web ui\n"
     "  --upstream H:P    tor dials out through this socks5 (e.g. xray 127.0.0.1:10808)\n"
     "  --include CCS     only use these exits, e.g. {de},{nl},{se}\n"
     "  --exclude CCS     never use these exits, e.g. {us},{gb}\n"
@@ -41,6 +44,7 @@ static void defaults(void)
     g_cfg.socks_port = 9050;
     g_cfg.control_port = 9051;
     g_cfg.listen_port = 1080;
+    g_cfg.web_port = 8080;
     g_cfg.mode = ROT_MANUAL;
     g_cfg.timer_sec = 300;
     g_cfg.rot_every_n = 1;
@@ -82,6 +86,8 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--socks"))    g_cfg.socks_port = atoi(next), i++;
         else if (!strcmp(a, "--control"))  g_cfg.control_port = atoi(next), i++;
         else if (!strcmp(a, "--listen"))   g_cfg.listen_port = atoi(next), i++;
+        else if (!strcmp(a, "--web"))      g_cfg.web_port = atoi(next), i++;
+        else if (!strcmp(a, "--no-web"))   g_cfg.web_port = 0;
         else if (!strcmp(a, "--upstream")) str_copy(g_cfg.upstream_proxy, sizeof g_cfg.upstream_proxy, next), i++;
         else if (!strcmp(a, "--include"))  str_copy(g_cfg.exit_include, sizeof g_cfg.exit_include, next), i++;
         else if (!strcmp(a, "--exclude"))  str_copy(g_cfg.exit_exclude, sizeof g_cfg.exit_exclude, next), i++;
@@ -129,6 +135,7 @@ int main(int argc, char **argv)
     printf("tor_rotate " ROT_VERSION "  -  [h] for help\n");
     if (sock_init() != 0) { log_line("FATAL: socket init failed"); return 1; }
 
+    web_start(g_cfg.web_port);
     if (torproc_launch() != 0) { torproc_stop(); return 1; }
 
     worker_start();

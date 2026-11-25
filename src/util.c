@@ -4,7 +4,16 @@
 config_t g_cfg;
 static int g_quiet = 0;
 
+#define LOG_RING 64
+#define LOG_LINE 256
+static char g_logring[LOG_RING][LOG_LINE];
+static int  g_logn = 0;      /* lines stored, capped at LOG_RING */
+static int  g_logpos = 0;    /* next write slot */
+static mutex_t g_logmx;
+
 void log_set_quiet(int q) { g_quiet = q; }
+
+void log_init(void) { mutex_init(&g_logmx); }
 
 void ui_invalidate(void);   /* ui.c */
 
@@ -20,14 +29,41 @@ void log_line(const char *fmt, ...)
     localtime_r(&t, &tmv);
 #endif
     strftime(ts, sizeof ts, "%H:%M:%S", &tmv);
+    char msg[200];
     va_list ap;
-    printf("[%s] ", ts);
     va_start(ap, fmt);
-    vprintf(fmt, ap);
+    vsnprintf(msg, sizeof msg, fmt, ap);
     va_end(ap);
-    printf("\n");
+    printf("[%s] %s\n", ts, msg);
     fflush(stdout);
+
+    mutex_lock(&g_logmx);
+    snprintf(g_logring[g_logpos], LOG_LINE, "[%s] %s", ts, msg);
+    g_logpos = (g_logpos + 1) % LOG_RING;
+    if (g_logn < LOG_RING) g_logn++;
+    mutex_unlock(&g_logmx);
+
     ui_invalidate();            /* status block must redraw fresh below the log line */
+}
+
+int log_count(void)
+{
+    mutex_lock(&g_logmx);
+    int n = g_logn;
+    mutex_unlock(&g_logmx);
+    return n;
+}
+
+int log_get(int idx, char *buf, int buflen)
+{
+    mutex_lock(&g_logmx);
+    int ok = idx >= 0 && idx < g_logn;
+    if (ok) {
+        int first = (g_logpos - g_logn + LOG_RING) % LOG_RING;
+        str_copy(buf, (size_t)buflen, g_logring[(first + idx) % LOG_RING]);
+    }
+    mutex_unlock(&g_logmx);
+    return ok ? 0 : -1;
 }
 
 long now_sec(void) { return (long)time(NULL); }

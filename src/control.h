@@ -19,6 +19,7 @@ typedef struct {
 int  ctrl_connect(ctrl_t *c, int port);
 int  ctrl_auth(ctrl_t *c, const char *datadir);  /* cookie or NULL auth */
 void ctrl_close(ctrl_t *c);
+void ctrl_lock_init(void);                         /* before any thread uses ctrl_cmd */
 
 /* raw command; returns 0 on 250-type success, fills reply (may be NULL) */
 int  ctrl_cmd(ctrl_t *c, const char *cmd, char *reply, int reply_max);
