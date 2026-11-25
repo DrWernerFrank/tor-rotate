@@ -29,7 +29,7 @@ Download the **Tor Expert Bundle** (tor.win32) from torproject.org, put
 tor_rotate.exe
 tor_rotate.exe --mode timer --timer 120
 tor_rotate.exe --mode per --batch 5
-tor_rotate.exe --upstream 127.0.0.1:10808            ; force tor through xray's local socks
+tor_rotate.exe --upstream 127.0.0.1:10810            ; force tor through a local socks (sing-box, see below)
 tor_rotate.exe --exclude {us},{gb}                    ; never these exit countries
 tor_rotate.exe --include {de},{nl},{se}               ; pin to these exit countries
 tor_rotate.exe --bridges-file bridges.txt             ; use obfs4/meek bridges (recommended if
@@ -51,6 +51,33 @@ It is also available as a JSON API: `GET /api/status`, `GET /api/circuits`,
 and `POST /api/rotate|pause`, `POST /api/mode?set=manual|per|timer|off`,
 `POST /api/timer?sec=N`, `POST /api/batch?n=N`. POST requests must send the
 header `X-Tor-Rotate: 1` and the Host must be `127.0.0.1` or `localhost`.
+
+## Whole-network routing (sing-box TUN)
+
+`tun/` routes all system traffic through `tor_rotate` using sing-box's TUN mode:
+
+```
+apps -> sing-box TUN -> socks 127.0.0.1:1080 (tor_rotate) -> tor -> socks 127.0.0.1:10810 -> your proxy -> internet
+```
+
+1. Turn off any other TUN client (for example Happ's TUN mode). Only one TUN can own the default route.
+2. Copy `tun\proxy.txt.example` to `tun\proxy.txt` and paste your share link
+   (`ss://`, `vless://`, `vmess://` or `trojan://`). Change it any time; it's
+   read on each start.
+3. From an **Administrator** terminal, run `tun\start-tun.bat`. It generates
+   `tun\config.json` from your link, validates it and starts sing-box.
+4. Start `tor_rotate` with `run.bat`. Keep it running: while the tunnel is up,
+   all traffic goes through it, so closing it cuts off the network.
+5. Stop with `tun\stop-tun.bat`. Removing the adapter and routes happens when sing-box exits.
+
+Notes:
+- DNS goes through Tor (DNS-over-HTTPS via the Tor socks), so lookups don't leak.
+- UDP is rejected on purpose. Tor can't carry UDP, so QUIC and game traffic fall back or fail rather than leaking outside Tor.
+- Files in `tun\`: `make_config.py` (link -> config), `start-tun.bat`, `stop-tun.bat`,
+  `bin\` (sing-box.exe and wintun.dll, downloaded separately; see below).
+- Binaries: sing-box from https://github.com/SagerNet/sing-box/releases (windows-amd64),
+  and `wintun.dll` from https://www.wintun.net, both into `tun\bin\`.
+- `tun\proxy.txt` and `tun\config.json` contain your credentials and are gitignored.
 
 ## Bridges
 
@@ -80,6 +107,8 @@ xray AND bridges, Tor connects to bridges via your `--upstream` proxy.
 - **xray as local proxy only (not system-wide):** pass `--upstream 127.0.0.1:PORT`
   (xray's inbound socks). Tor then dials through xray explicitly via
   `Socks5Proxy`, so tor-in-vpn even without a TUN.
+- **Whole-network (`tun\`):** `run.bat` points Tor at sing-box's local socks on
+  `127.0.0.1:10810`. See "Whole-network routing" above.
 - Both layers applied = your VPN IP connects to Tor guards, exits rotate.
 - A guard relay is sticky for months by design; that is the *first* hop after
   your VPN and is normal. Exits rotate; guards do not (unless you wipe `data\`).
@@ -90,4 +119,6 @@ xray AND bridges, Tor connects to bridges via your `--upstream` proxy.
   separation use separate browser profiles or Tor Browser itself.
 - Exit selection via `--include`/`--exclude` uses country codes or
   fingerprints/families; see Tor's manual for the syntax.
-- Ports 9050/9051/1080 must be free or remap with flags.
+- Ports 9050/9051/1080/8080 (web UI) must be free or remap with flags
+  (`--socks`, `--control`, `--listen`, `--web`). The sing-box setup also uses
+  10810 for Tor's upstream; leave it free for `tun\start-tun.bat`.
