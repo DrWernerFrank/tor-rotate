@@ -1,0 +1,19 @@
+# runtime state (tor keys, cookies, logs — never commit)
+data/
+
+# tor binaries & geoip (download the Tor Expert Bundle yourself; see README)
+tor/
+
+# large downloads / scratch
+tor-expert.tar.gz
+listing.html
+sums.txt
+*.out
+
+# bridges are machine-specific and fetched fresh from bridges.torproject.org
+bridges.txt
+
+# build artifacts
+*.obj
+*.exe
+*.pdb
