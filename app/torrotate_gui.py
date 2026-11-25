@@ -46,6 +46,7 @@ LEGACY_BRIDGES = os.path.join(DATA, "bridges.txt")
 SOCKS_PORT = make_config.TOR_SOCKS
 CONTROL_PORT = 9051
 UPSTREAM_PORT = make_config.UPSTREAM_PORT
+NEWNYM_MIN_GAP = 10
 INTERVALS = {"1 min": 60, "3 min": 180, "5 min": 300, "10 min": 600, "30 min": 1800, "1 hour": 3600}
 NO_WINDOW = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
 
@@ -98,7 +99,7 @@ def ease(t):
 DEFAULT_SETTINGS = {
     "link": "",
     "bridges": "",
-    "rotation": {"mode": "Manual", "interval": "5 min"},
+    "rotation": {"mode": "Manual", "interval": "5 min", "drop_open": True},
     "singbox": {**make_config.DEFAULTS, "direct_rules": ""},
 }
 
@@ -212,6 +213,19 @@ class Control:
 
     def newnym(self):
         self.cmd("SIGNAL NEWNYM")
+
+    def close_streams(self):
+        """Close open streams so apps reconnect and pick up a circuit on the new exit."""
+        closed = 0
+        for line in self.cmd("GETINFO stream-status").splitlines():
+            parts = line.split()
+            if parts and parts[0].isdigit():
+                try:
+                    self.cmd(f"CLOSESTREAM {parts[0]} 1")
+                    closed += 1
+                except RuntimeError:
+                    pass
+        return closed
 
     def close(self):
         try:
@@ -341,6 +355,8 @@ class App(tk.Tk):
         self.last_exit_poll = 0.0
         self.rot_mode = "Manual"
         self.rot_interval = 300
+        self.drop_open = True
+        self.last_newnym = 0.0
         self._anims = {}
         self._btn_color = {}
         self._pill_color = C["muted"]
@@ -354,6 +370,7 @@ class App(tk.Tk):
         self.link_var = tk.StringVar()
         self.mode_var = tk.StringVar()
         self.interval_var = tk.StringVar()
+        self.drop_var = tk.BooleanVar()
         self.sb_vars = {
             "log_level": tk.StringVar(), "stack": tk.StringVar(), "mtu": tk.StringVar(),
             "strict_route": tk.BooleanVar(), "bypass_lan": tk.BooleanVar(),
@@ -426,6 +443,8 @@ class App(tk.Tk):
                           state="readonly", width=16)
         iv.bind("<<ComboboxSelected>>", lambda e: self.on_rotation_change())
         add_row(rot, "Change exit every (timer mode)", iv)
+        add_check(rot, "Close open connections on rotate (apps reconnect on the new exit)", self.drop_var)
+        self.drop_var.trace_add("write", lambda *a: self.on_rotation_change(log=False))
 
         route = card(parent, "Route")
         route.pack(fill="x", pady=(14, 0))
@@ -514,6 +533,7 @@ class App(tk.Tk):
         self.bridges_txt.insert("1.0", s["bridges"])
         self.mode_var.set(s["rotation"]["mode"])
         self.interval_var.set(s["rotation"]["interval"])
+        self.drop_var.set(s["rotation"]["drop_open"])
         self.on_rotation_change(log=False)
         sb = s["singbox"]
         for key, var in self.sb_vars.items():
@@ -525,7 +545,8 @@ class App(tk.Tk):
         return {
             "link": self.link_var.get().strip(),
             "bridges": self.bridges_txt.get("1.0", "end").strip(),
-            "rotation": {"mode": self.mode_var.get(), "interval": self.interval_var.get()},
+            "rotation": {"mode": self.mode_var.get(), "interval": self.interval_var.get(),
+                         "drop_open": self.drop_var.get()},
             "singbox": {
                 **{k: v.get() for k, v in self.sb_vars.items()},
                 "direct_rules": self.direct_txt.get("1.0", "end").strip(),
@@ -711,6 +732,7 @@ class App(tk.Tk):
     def on_rotation_change(self, log=True):
         self.rot_mode = self.mode_var.get()
         self.rot_interval = INTERVALS.get(self.interval_var.get(), 300)
+        self.drop_open = self.drop_var.get()
         if log:
             self.log(f"rotation: {self.rot_mode}" +
                      (f" every {self.interval_var.get()}" if self.rot_mode == "Timer" else ""))
@@ -824,12 +846,15 @@ class App(tk.Tk):
                     if self.ctl is None:
                         self.ctl = Control()
                     due = self.rot_mode == "Timer" and now - self.last_rot >= self.rot_interval
-                    if self.rotate_now or due:
+                    # Tor ignores NEWNYM sent less than 10 s after the previous one.
+                    if (self.rotate_now or due) and now - self.last_newnym >= NEWNYM_MIN_GAP:
                         self.rotate_now = False
                         self.ctl.newnym()
+                        self.last_newnym = now
                         self.rotations += 1
                         self.last_rot = now
-                        self.log(f"exit rotated (#{self.rotations})")
+                        closed = self.ctl.close_streams() if self.drop_open else 0
+                        self.log(f"exit rotated (#{self.rotations}), closed {closed} open connections")
                     if now - self.last_exit_poll >= 3:
                         self.last_exit_poll = now
                         self.set_exit(read_exit(self.ctl))
